@@ -1,34 +1,237 @@
 #!/usr/bin/python
 
 import subprocess
+from asciitree import LeftAligned
+from collections import OrderedDict as OD
 
-def get_reqs(reqs, pkg):                                                                            
-    if pkg=='' or pkg in reqs:                                           
-        return                                                           
-    print 'find reqs for', pkg                                                                                 
-    proc = subprocess.Popen(['pip', 'show', pkg], stdout=subprocess.PIPE)                                          
-    out = proc.communicate()[0]                                                                                    
-    try:                                                     
-        pkg_ver = [r.split(':')[1].strip() for r in out.split('\n') if 'Version' in r][0]                                           
+def get_reqs(reqs, tree, pkg):
+    if pkg=='' or pkg in reqs:
+        return
+    print 'find reqs for', pkg
+    proc = subprocess.Popen(['pip', 'show', pkg], stdout=subprocess.PIPE)
+    out = proc.communicate()[0]
+    try:
+        pkg_ver = [r.split(':')[1].strip() for r in out.split('\n') if 'Version' in r][0]
         print "Version:", pkg_ver
-        pkg_reqs = [[p.strip() for p in r.split(':')[1].split(',') if p.strip()!=''] for r in out.split('\n') if 'Requires' in r][0]
-        if pkg in reqs:
-            if type(reqs[pkg]) is list:
-                if pkg_ver not in reqs[pkg]:
-                    reqs[pkg].append((pkg_ver, pkg_reqs))
-            else:
-                reqs[pkg] = [reqs[pkg], (pkg_ver, pkg_reqs)]
-        else:
-            reqs[pkg] = (pkg_ver, pkg_reqs)
-        if len(pkg_reqs)==0:                                 
-           return                     
-        map(lambda pkg_req: get_reqs(reqs,pkg_req), pkg_reqs)
+        pkg_reqs = [[p.strip() for p in r.split(':')[1].split(',') if p.strip()!=""] for r in out.split('\n') if 'Requires' in r][0]
+        reqs[pkg] = (pkg_ver, pkg_reqs)
+        tree[pkg+'=='+pkg_ver] = OD()
+        if len(pkg_reqs)==0:
+           return
+        map(lambda pkg_req: get_reqs(reqs, tree[pkg+'=='+pkg_ver], pkg_req), pkg_reqs)
     except IndexError:
         pass
 
+def make_full_tree(reqs, pkg):
+    t = OD()
+    t[pkg+'=='+reqs[pkg][0]] = OD()
+    def recursv(deps, t):
+        for dep in deps:
+            v, d = reqs[dep]
+            t[dep+'=='+v] = OD()
+            if len(d)>0:
+                recursv(d, t[dep+'=='+v])
+    recursv(reqs[pkg][1], t[pkg+'=='+reqs[pkg][0]])
+    return t
+
+def parse_reqs(reqs, pkg):
+    l = []
+    deps = reqs[pkg][1]
+    def recursv(deps):
+        for dep in deps:
+            v, d = reqs[dep]
+            if len(d)>0:
+                recursv(d)
+            if dep+'=='+v not in set(l):
+                l.append(dep+'=='+v)
+    recursv(deps)
+    l.append(pkg+'=='+reqs[pkg][0])
+    return l
+
 if __name__=='__main__':
     import sys
-    reqs = {}
-    get_reqs(reqs, sys.argv[1])
-    print reqs
+    import os
+    import argparse
 
+    parser = argparse.ArgumentParser(description='get full list of dependencies for installed pip packages')
+    parser.add_argument('pkg', help='installed pip package')
+    parser.add_argument('--write', help='write to requirements.txt file', action='store_true')
+
+    args = parser.parse_args()
+
+    reqs = {}
+    tree = OD()
+
+    get_reqs(reqs, tree, args.pkg)
+    full_tree = make_full_tree(reqs, args.pkg)
+    reqs_list = parse_reqs(reqs, args.pkg)
+    if args.write:
+        with open('requirements.txt', 'w') as fd:
+            [fd.write(l+'\n') for l in reqs_list]
+
+    print 25*'*'
+    print "full dependency tree"
+    print 25*'*'
+    tr1 = LeftAligned()
+    print(tr1(full_tree))
+
+    print 25*'*'
+    print "ordered tree -- no duplicates"
+    print 25*'*'
+    tr2 = LeftAligned()
+    print(tr2(tree))
+
+    print 25*'*'
+    print "copy to requirements.txt (or use '--write' option)"
+    print 25*'*'
+    for l in reqs_list: print l
+
+    print 25*'*'
+    print "download to local: pip wheel --wheel-dir=/path/to/wheels -r requirements.txt"
+    print "install from local: pip install --no-index --find-links=/path/to/wheels -r requirements.txt"
+    print "install from online: pip install -r requirements.txt"
+    print 25*'*'
+
+
+#example for tensorflow
+""" 
+{'markdown':
+    ('2.6.9', []),
+ 'funcsigs':
+    ('1.0.2', []),
+ 'backports.weakref':
+    ('1.0.post1', []),
+ 'grpcio':
+    ('1.10.0', ['six', 'protobuf', 'futures', 'enum34']),
+ 'absl-py':
+    ('0.1.12', ['six']),
+ 'tensorboard':
+    ('1.6.0', ['html5lib', 'futures', 'werkzeug', 'protobuf', 'markdown', 'six', 'wheel', 'numpy', 'bleach']),
+ 'html5lib':
+    ('0.9999999', ['six']),
+ 'six':
+    ('1.11.0', []),
+ 'termcolor':
+    ('1.1.0', []),
+ 'werkzeug':
+    ('0.12.2', []),
+ 'tensorflow':
+    ('1.6.0rc1', ['astor', 'protobuf', 'gast', 'enum34', 'tensorboard', 'six', 'absl-py', 'backports.weakref', 'wheel', 'termcolor', 'numpy', 'mock', 'grpcio']),
+ 'numpy':
+    ('1.14.2', []),
+ 'mock':
+    ('2.0.0', ['funcsigs', 'pbr', 'six']),
+ 'wheel':
+    ('0.29.0', []),
+ 'protobuf':
+    ('3.5.0.post1', ['setuptools', 'six']),
+ 'bleach':
+    ('1.5.0', ['html5lib', 'six']),
+ 'gast':
+    ('0.2.0', []),
+ 'astor':
+    ('0.6.2', []),
+ 'pbr':
+    ('3.1.1', []),
+ 'enum34':
+    ('1.1.6', []),
+ 'futures':
+    ('3.2.0', []),
+ 'setuptools':
+    ('39.0.1', [])}
+"""
+
+""" 
+tensorflow==1.6.0rc1
+ +-- astor==0.6.2
+ +-- protobuf==3.5.0.post1
+ |   +-- setuptools==39.0.1
+ |   +-- six==1.11.0
+ +-- gast==0.2.0
+ +-- enum34==1.1.6
+ +-- tensorboard==1.6.0
+ |   +-- html5lib==0.9999999
+ |   |   +-- six==1.11.0
+ |   +-- futures==3.2.0
+ |   +-- werkzeug==0.12.2
+ |   +-- protobuf==3.5.0.post1
+ |   |   +-- setuptools==39.0.1
+ |   |   +-- six==1.11.0
+ |   +-- markdown==2.6.9
+ |   +-- six==1.11.0
+ |   +-- wheel==0.29.0
+ |   +-- numpy==1.14.2
+ |   +-- bleach==1.5.0
+ |       +-- html5lib==0.9999999
+ |       |   +-- six==1.11.0
+ |       +-- six==1.11.0
+ +-- six==1.11.0
+ +-- absl-py==0.1.12
+ |   +-- six==1.11.0
+ +-- backports.weakref==1.0.post1
+ +-- wheel==0.29.0
+ +-- termcolor==1.1.0
+ +-- numpy==1.14.2
+ +-- mock==2.0.0
+ |   +-- funcsigs==1.0.2
+ |   +-- pbr==3.1.1
+ |   +-- six==1.11.0
+ +-- grpcio==1.10.0
+     +-- six==1.11.0
+     +-- protobuf==3.5.0.post1
+     |   +-- setuptools==39.0.1
+     |   +-- six==1.11.0
+     +-- futures==3.2.0
+     +-- enum34==1.1.6
+"""
+
+
+""" 
+tensorflow==1.6.0rc1
+ +-- astor==0.6.2
+ +-- protobuf==3.5.0.post1
+ |   +-- setuptools==39.0.1
+ |   +-- six==1.11.0
+ +-- gast==0.2.0
+ +-- enum34==1.1.6
+ +-- tensorboard==1.6.0
+ |   +-- html5lib==0.9999999
+ |   +-- futures==3.2.0
+ |   +-- werkzeug==0.12.2
+ |   +-- markdown==2.6.9
+ |   +-- wheel==0.29.0
+ |   +-- numpy==1.14.2
+ |   +-- bleach==1.5.0
+ +-- absl-py==0.1.12
+ +-- backports.weakref==1.0.post1
+ +-- termcolor==1.1.0
+ +-- mock==2.0.0
+ |   +-- funcsigs==1.0.2
+ |   +-- pbr==3.1.1
+ +-- grpcio==1.10.0
+"""
+
+""" 
+astor==0.6.2
+setuptools==39.0.1
+six==1.11.0
+protobuf==3.5.0.post1
+gast==0.2.0
+enum34==1.1.6
+html5lib==0.9999999
+futures==3.2.0
+werkzeug==0.12.2
+markdown==2.6.9
+wheel==0.29.0
+numpy==1.14.2
+bleach==1.5.0
+tensorboard==1.6.0
+absl-py==0.1.12
+backports.weakref==1.0.post1
+termcolor==1.1.0
+funcsigs==1.0.2
+pbr==3.1.1
+mock==2.0.0
+grpcio==1.10.0
+tensorflow==1.6.0rc1
+"""
