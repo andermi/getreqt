@@ -1,0 +1,34 @@
+#!/usr/bin/python
+
+import subprocess
+
+def get_reqs(reqs, pkg):                                                                            
+    if pkg=='' or pkg in reqs:                                           
+        return                                                           
+    print 'find reqs for', pkg                                                                                 
+    proc = subprocess.Popen(['pip', 'show', pkg], stdout=subprocess.PIPE)                                          
+    out = proc.communicate()[0]                                                                                    
+    try:                                                     
+        pkg_ver = [r.split(':')[1].strip() for r in out.split('\n') if 'Version' in r][0]                                           
+        print "Version:", pkg_ver
+        pkg_reqs = [[p.strip() for p in r.split(':')[1].split(',') if p.strip()!=''] for r in out.split('\n') if 'Requires' in r][0]
+        if pkg in reqs:
+            if type(reqs[pkg]) is list:
+                if pkg_ver not in reqs[pkg]:
+                    reqs[pkg].append((pkg_ver, pkg_reqs))
+            else:
+                reqs[pkg] = [reqs[pkg], (pkg_ver, pkg_reqs)]
+        else:
+            reqs[pkg] = (pkg_ver, pkg_reqs)
+        if len(pkg_reqs)==0:                                 
+           return                     
+        map(lambda pkg_req: get_reqs(reqs,pkg_req), pkg_reqs)
+    except IndexError:
+        pass
+
+if __name__=='__main__':
+    import sys
+    reqs = {}
+    get_reqs(reqs, sys.argv[1])
+    print reqs
+
