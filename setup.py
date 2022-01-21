@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='getreqt',
-    version='0.1',
+    version='0.2',
     description='get requirements tree for installed pip packages',
     url='https://github.com/andermi/getreqt',
     author='Michael Anderson',
